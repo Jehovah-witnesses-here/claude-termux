@@ -15,8 +15,8 @@ echo ""
 
 # 1. Required Termux packages
 echo "==> Installing required packages..."
-pkg install -y proot nodejs-lts 2>/dev/null || pkg install -y proot nodejs 2>/dev/null
-echo "    proot + nodejs: OK"
+pkg install -y proot patchelf nodejs-lts 2>/dev/null || pkg install -y proot patchelf nodejs 2>/dev/null
+echo "    proot + patchelf + nodejs: OK"
 
 # 2. Create data directory
 mkdir -p "$INSTALL_DIR" "$BIN_DIR"
@@ -70,6 +70,15 @@ if [ -f "$NATIVE_BIN" ] && [ "$(wc -c < "$NATIVE_BIN")" -gt 4096 ]; then
     tar xzf "$INSTALL_DIR/musl/musl.apk" -C "$INSTALL_DIR/musl" lib/ 2>/dev/null || true
     rm -f "$INSTALL_DIR/musl/musl.apk"
     echo "    musl libc: OK"
+    # Patch binary: embed interpreter + rpath so it runs without LD_LIBRARY_PATH
+    # After this, only /etc needs proot (musl DNS reads /etc/resolv.conf)
+    MUSL_LIB="$INSTALL_DIR/musl/lib"
+    patchelf \
+      --set-interpreter "$MUSL_LIB/ld-musl-aarch64.so.1" \
+      --set-rpath "$MUSL_LIB" \
+      "$NATIVE_BIN" 2>/dev/null \
+      && echo "    patchelf: interpreter + rpath embedded" \
+      || echo "    WARNING: patchelf failed — /lib bindings will be used as fallback."
   else
     echo "    WARNING: could not fetch musl — native binary may not work."
   fi
