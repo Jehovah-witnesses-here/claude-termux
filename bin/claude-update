@@ -124,20 +124,5 @@ for dir in ripgrep audio-capture; do
   fi
 done
 
-# Patch native binary: embed musl interpreter + rpath so it runs without
-# LD_LIBRARY_PATH and without /lib proot bindings (3 fewer proot binds)
-GLOBAL_BIN="$PREFIX/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe"
-if [ -f "$GLOBAL_BIN" ] && [ "$(wc -c < "$GLOBAL_BIN")" -gt 4096 ]; then
-  if command -v patchelf >/dev/null 2>&1; then
-    patchelf \
-      --set-interpreter "$MUSL_LIB/ld-musl-aarch64.so.1" \
-      --set-rpath "$MUSL_LIB" \
-      "$GLOBAL_BIN" 2>/dev/null && log "Binary patched (patchelf: interpreter + rpath embedded)." \
-      || log "WARNING: patchelf failed — binary will still work via LD_LIBRARY_PATH fallback."
-  else
-    log "patchelf not found (pkg install patchelf) — skipping binary patch."
-  fi
-fi
-
 rm -rf "$TESTDIR"
 log "Done. Now on: $(claude-proot --version 2>/dev/null | head -1)"

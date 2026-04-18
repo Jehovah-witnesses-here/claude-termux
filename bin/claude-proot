@@ -42,13 +42,12 @@ CLAUDE_PKG="$PREFIX/lib/node_modules/@anthropic-ai/claude-code"
 NATIVE_BIN="$CLAUDE_PKG/bin/claude.exe"
 
 if [ -f "$NATIVE_BIN" ] && [ "$(wc -c < "$NATIVE_BIN")" -gt 4096 ]; then
-    # Native musl ELF build (2.1.114+).
-    # patchelf (run by claude-update) embeds interpreter + rpath so the binary
-    # finds musl libc without LD_LIBRARY_PATH or /lib bindings.
-    # Only /etc is mapped: musl's DNS resolver reads /etc/resolv.conf directly.
-    # /tmp is not needed: libuv reads TMPDIR env var (already set by Termux).
+    # Native musl ELF build (2.1.114+) — proot maps /tmp, /etc, and musl libc
     exec env -u LD_PRELOAD proot \
+        -b "$PREFIX/tmp:/tmp" \
         -b "$PREFIX/etc:/etc" \
+        -b "$MUSL_LIB/ld-musl-aarch64.so.1:/lib/ld-musl-aarch64.so.1" \
+        -b "$MUSL_LIB/libc.musl-aarch64.so.1:/lib/libc.musl-aarch64.so.1" \
         "$NATIVE_BIN" "$@"
 else
     # Legacy JS build — run via Node with addon stubs
