@@ -1,0 +1,128 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# claude-update - Safe Claude Code updater for Termux
+# Tests new versions in a sandbox before installing globally.
+# Supports legacy JS (pre-2.1.114) and native musl ELF (2.1.114+) builds.
+
+set -e
+PREFIX=${PREFIX:-/data/data/com.termux/files/usr}
+: ${CLAUDE_TERMUX_HOME:=${XDG_DATA_HOME:-$HOME/.local/share}/claude-termux}
+MUSL_LIB="$CLAUDE_TERMUX_HOME/musl/lib"
+TESTDIR="$HOME/.cache/claude-update-test"
+QUIET=0; [ "${1}" = "--quiet" ] && QUIET=1
+log() { [ "$QUIET" = "0" ] && echo "$@" || true; }
+
+CURRENT=$(CLAUDE_UPDATING=1 claude-proot --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+
+# Find latest 2.x version
+LATEST=$(npm view @anthropic-ai/claude-code versions --json 2>/dev/null | \
+  grep -oE '"2\.[0-9]+\.[0-9]+"' | tr -d '"' | sort -V | tail -1)
+
+log "Current: ${CURRENT:-unknown}"
+log "Latest 2.x: ${LATEST:-unknown}"
+
+if [ -z "$LATEST" ]; then
+  echo "FAIL: could not fetch version list (network issue?)."
+  exit 1
+fi
+
+if [ "$CURRENT" = "$LATEST" ]; then
+  log "Already up to date."
+  exit 0
+fi
+
+# Download Alpine musl libc if missing (needed for native binary builds)
+ensure_musl_lib() {
+  if [ -f "$MUSL_LIB/ld-musl-aarch64.so.1" ]; then return 0; fi
+  log "Downloading musl libc..."
+  mkdir -p "$CLAUDE_TERMUX_HOME/musl"
+  local INDEX="https://dl-cdn.alpinelinux.org/alpine/edge/main/aarch64/"
+  local APK_NAME
+  APK_NAME=$(curl -sL "$INDEX" | grep -oE 'musl-[0-9]+\.[0-9]+\.[0-9]+-r[0-9]+\.apk' | sort -V | tail -1)
+  [ -z "$APK_NAME" ] && { log "Could not find musl APK."; return 1; }
+  log "Fetching $APK_NAME..."
+  curl -sL "${INDEX}${APK_NAME}" -o "$CLAUDE_TERMUX_HOME/musl/musl.apk" || return 1
+  tar xzf "$CLAUDE_TERMUX_HOME/musl/musl.apk" -C "$CLAUDE_TERMUX_HOME/musl" lib/ 2>/dev/null || true
+  rm -f "$CLAUDE_TERMUX_HOME/musl/musl.apk"
+  [ -f "$MUSL_LIB/ld-musl-aarch64.so.1" ] && log "musl libc ready."
+}
+
+log "Testing $LATEST in sandbox..."
+rm -rf "$TESTDIR" && mkdir -p "$TESTDIR"
+
+npm install --prefix "$TESTDIR" "@anthropic-ai/claude-code@$LATEST" 2>&1 | \
+  grep -v "Unsupported platform" || true
+
+TESTBIN="$TESTDIR/node_modules/.bin/claude"
+if [ ! -f "$TESTBIN" ]; then
+  echo "FAIL: binary not found after install. Keeping $CURRENT."
+  exit 1
+fi
+
+# Apply Android vendor symlinks to sandbox
+TESTVENDOR="$TESTDIR/node_modules/@anthropic-ai/claude-code/vendor"
+for dir in ripgrep audio-capture; do
+  if [ -d "$TESTVENDOR/$dir/arm64-linux" ] && [ ! -e "$TESTVENDOR/$dir/arm64-android" ]; then
+    ln -s arm64-linux "$TESTVENDOR/$dir/arm64-android"
+  fi
+done
+
+# Path 1: legacy JS build
+TESTVER=$(NODE_OPTIONS="--require $CLAUDE_TERMUX_HOME/android-native-stub.js" \
+  "$TESTBIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+INSTALL_MODE="node"
+
+# Path 2: native musl binary (2.1.114+)
+if [ -z "$TESTVER" ]; then
+  log "JS path failed, trying native musl binary..."
+  if ensure_musl_lib; then
+    npm install --prefix "$TESTDIR" \
+      "@anthropic-ai/claude-code-linux-arm64-musl@$LATEST" --force 2>/dev/null || true
+    MUSL_BIN="$TESTDIR/node_modules/@anthropic-ai/claude-code-linux-arm64-musl/claude"
+    if [ -f "$MUSL_BIN" ]; then
+      TESTVER=$(env -u LD_PRELOAD proot \
+        -b "$PREFIX/tmp:/tmp" \
+        -b "$PREFIX/etc:/etc" \
+        -b "$MUSL_LIB/ld-musl-aarch64.so.1:/lib/ld-musl-aarch64.so.1" \
+        -b "$MUSL_LIB/libc.musl-aarch64.so.1:/lib/libc.musl-aarch64.so.1" \
+        "$MUSL_BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+      [ -n "$TESTVER" ] && INSTALL_MODE="musl"
+    fi
+  fi
+fi
+
+if [ -z "$TESTVER" ]; then
+  echo "FAIL: $LATEST crashes on this device (tried JS + musl). Keeping $CURRENT."
+  rm -rf "$TESTDIR"
+  exit 1
+fi
+
+log "PASS: $LATEST works via $INSTALL_MODE. Installing globally..."
+
+if [ "$INSTALL_MODE" = "node" ]; then
+  npm install -g "@anthropic-ai/claude-code@$LATEST"
+else
+  npm install -g "@anthropic-ai/claude-code@$LATEST" --ignore-scripts 2>&1 | \
+    grep -v "Unsupported platform" || true
+  NATIVE_CACHE="$CLAUDE_TERMUX_HOME/native"
+  mkdir -p "$NATIVE_CACHE"
+  npm install --prefix "$NATIVE_CACHE" \
+    "@anthropic-ai/claude-code-linux-arm64-musl@$LATEST" --force 2>/dev/null
+  CLAUDE_PKG="$PREFIX/lib/node_modules/@anthropic-ai/claude-code"
+  mkdir -p "$CLAUDE_PKG/bin"
+  cp "$NATIVE_CACHE/node_modules/@anthropic-ai/claude-code-linux-arm64-musl/claude" \
+    "$CLAUDE_PKG/bin/claude.exe"
+  chmod +x "$CLAUDE_PKG/bin/claude.exe"
+  log "Native binary placed at $CLAUDE_PKG/bin/claude.exe"
+fi
+
+# Re-apply vendor symlinks after global install
+VENDOR="$PREFIX/lib/node_modules/@anthropic-ai/claude-code/vendor"
+for dir in ripgrep audio-capture; do
+  if [ -d "$VENDOR/$dir/arm64-linux" ] && [ ! -e "$VENDOR/$dir/arm64-android" ]; then
+    ln -s arm64-linux "$VENDOR/$dir/arm64-android"
+    log "$dir symlink fixed."
+  fi
+done
+
+rm -rf "$TESTDIR"
+log "Done. Now on: $(claude-proot --version 2>/dev/null | head -1)"

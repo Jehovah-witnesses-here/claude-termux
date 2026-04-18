@@ -1,0 +1,56 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# claude-proot - Claude Code launcher for Termux (Android ARM64)
+#
+# Supports both legacy JS builds (pre-2.1.114) and native musl ELF builds (2.1.114+).
+# Uses proot to map /tmp, /etc, /lib so the binary sees a standard Linux layout.
+#
+# Install: see install.sh
+# Usage: claude-proot [claude args...]
+
+: ${PREFIX:=/data/data/com.termux/files/usr}
+: ${CLAUDE_TERMUX_HOME:=${XDG_DATA_HOME:-$HOME/.local/share}/claude-termux}
+MUSL_LIB="$CLAUDE_TERMUX_HOME/musl/lib"
+
+export DISABLE_AUTOUPDATER=1
+export DISABLE_AUTO_UPDATE=1
+export CLAUDE_CODE_DISABLE_AUTOUPDATER=1
+
+# Auto-fix native vendor symlinks (Node reports android, binaries ship as linux)
+VENDOR="$PREFIX/lib/node_modules/@anthropic-ai/claude-code/vendor"
+for dir in ripgrep audio-capture; do
+    if [ -d "$VENDOR/$dir/arm64-linux" ] && [ ! -e "$VENDOR/$dir/arm64-android" ]; then
+        ln -s arm64-linux "$VENDOR/$dir/arm64-android"
+    fi
+done
+
+# Fix stale cwd after phone restart
+if ! pwd &>/dev/null; then
+    cd "$HOME" 2>/dev/null || cd /
+fi
+
+# Intercept failed native addon loads (.node files that need glibc/ALSA)
+export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require $CLAUDE_TERMUX_HOME/android-native-stub.js"
+
+# Auto-update in background (skip if called from claude-update itself)
+if [ -z "$CLAUDE_UPDATING" ]; then
+    (sleep 5 && CLAUDE_UPDATING=1 claude-update --quiet 2>/dev/null) &
+    disown $!
+fi
+
+# Detect native binary vs legacy JS build
+CLAUDE_PKG="$PREFIX/lib/node_modules/@anthropic-ai/claude-code"
+NATIVE_BIN="$CLAUDE_PKG/bin/claude.exe"
+
+if [ -f "$NATIVE_BIN" ] && [ "$(wc -c < "$NATIVE_BIN")" -gt 4096 ]; then
+    # Native musl ELF build (2.1.114+)
+    exec env -u LD_PRELOAD proot \
+        -b "$PREFIX/tmp:/tmp" \
+        -b "$PREFIX/etc:/etc" \
+        -b "$MUSL_LIB/ld-musl-aarch64.so.1:/lib/ld-musl-aarch64.so.1" \
+        -b "$MUSL_LIB/libc.musl-aarch64.so.1:/lib/libc.musl-aarch64.so.1" \
+        "$NATIVE_BIN" "$@"
+else
+    # Legacy JS build — run via Node with addon stubs
+    exec proot -b "$PREFIX/tmp:/tmp" \
+        /data/data/com.termux/files/usr/bin/claude "$@"
+fi
