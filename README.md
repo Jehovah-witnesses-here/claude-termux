@@ -22,8 +22,10 @@ claude
 
 | Problem | Fix |
 |---|---|
-| `/tmp`, `/etc` don't exist | proot maps `$PREFIX/tmp` and `$PREFIX/etc` |
-| musl ELF binary can't find libc | Alpine musl libc downloaded once, mapped via proot |
+| musl ELF needs `/lib/ld-musl-aarch64.so.1` | proot maps it from `~/.local/share/claude-termux/musl/lib/` |
+| `/tmp` doesn't exist on Android | `TMPDIR=$PREFIX/tmp` — no proot binding needed |
+| musl DNS needs `/etc/resolv.conf` | Android's `/etc` → `/system/etc` natively — no binding needed |
+| musl libc path | `LD_LIBRARY_PATH` — no proot binding needed |
 | `LD_PRELOAD` bionic conflict | Cleared with `env -u LD_PRELOAD` before exec |
 | `audio-capture.node` dlopen fails | JS stub intercepts the failed load |
 | `arm64-android` vs `arm64-linux` | Vendor symlink auto-created after installs |
