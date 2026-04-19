@@ -57,34 +57,7 @@ for dir in ripgrep audio-capture; do
   fi
 done
 
-# 7. If native binary — download musl and place it
-NATIVE_BIN="$PREFIX/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe"
-if [ -f "$NATIVE_BIN" ] && [ "$(wc -c < "$NATIVE_BIN")" -gt 4096 ]; then
-  echo ""
-  echo "==> Native binary detected — downloading musl libc..."
-  mkdir -p "$INSTALL_DIR/musl"
-  INDEX="https://dl-cdn.alpinelinux.org/alpine/edge/main/aarch64/"
-  APK_NAME=$(curl -sL "$INDEX" | grep -oE 'musl-[0-9]+\.[0-9]+\.[0-9]+-r[0-9]+\.apk' | sort -V | tail -1)
-  if [ -n "$APK_NAME" ]; then
-    curl -sL "${INDEX}${APK_NAME}" -o "$INSTALL_DIR/musl/musl.apk"
-    tar xzf "$INSTALL_DIR/musl/musl.apk" -C "$INSTALL_DIR/musl" lib/ 2>/dev/null || true
-    rm -f "$INSTALL_DIR/musl/musl.apk"
-    echo "    musl libc: OK"
-    # Patch binary: embed interpreter + rpath so it runs without LD_LIBRARY_PATH
-    # After this, only /etc needs proot (musl DNS reads /etc/resolv.conf)
-    MUSL_LIB="$INSTALL_DIR/musl/lib"
-    patchelf \
-      --set-interpreter "$MUSL_LIB/ld-musl-aarch64.so.1" \
-      --set-rpath "$MUSL_LIB" \
-      "$NATIVE_BIN" 2>/dev/null \
-      && echo "    patchelf: interpreter + rpath embedded" \
-      || echo "    WARNING: patchelf failed — /lib bindings will be used as fallback."
-  else
-    echo "    WARNING: could not fetch musl — native binary may not work."
-  fi
-fi
-
-# 8. Verify
+# 7. Verify
 echo ""
 echo "==> Verifying..."
 VERSION=$(CLAUDE_UPDATING=1 claude-proot --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)

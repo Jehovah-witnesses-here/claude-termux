@@ -7,7 +7,7 @@ Works with all versions — legacy JS builds and native musl ELF builds (2.1.114
 ## Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/claude-termux
+git clone https://github.com/Jehovah-witnesses-here/claude-termux
 cd claude-termux
 bash install.sh
 ```
