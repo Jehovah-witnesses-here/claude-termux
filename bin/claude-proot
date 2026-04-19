@@ -43,13 +43,14 @@ CLAUDE_PKG="$PREFIX/lib/node_modules/@anthropic-ai/claude-code"
 NATIVE_BIN="$CLAUDE_PKG/bin/claude.exe"
 
 if [ -f "$NATIVE_BIN" ] && [ "$(wc -c < "$NATIVE_BIN")" -gt 4096 ]; then
-    # Native musl ELF build (2.1.114+) — 3 proot bindings (down from 4):
-    #   /tmp        — doesn't exist on Android
-    #   resolv.conf — musl DNS hardcodes this path; only this file, not all of /etc
+    # Native musl ELF build (2.1.114+) — 2 proot bindings:
+    #   resolv.conf — musl DNS hardcodes this path; no env var alternative
     #   ld-musl     — ET_EXEC binary; kernel must load interpreter at /lib (can't avoid)
-    # libc.musl is found via LD_LIBRARY_PATH instead of a 4th binding.
-    exec env -u LD_PRELOAD proot \
-        -b "$PREFIX/tmp:/tmp" \
+    # /tmp eliminated: TMPDIR env var routes temp files to $PREFIX/tmp instead.
+    # libc.musl found via LD_LIBRARY_PATH instead of a 3rd binding.
+    exec env -u LD_PRELOAD \
+        TMPDIR="$PREFIX/tmp" \
+        proot \
         -b "$PREFIX/etc/resolv.conf:/etc/resolv.conf" \
         -b "$MUSL_LIB/ld-musl-aarch64.so.1:/lib/ld-musl-aarch64.so.1" \
         env LD_LIBRARY_PATH="$MUSL_LIB" \
