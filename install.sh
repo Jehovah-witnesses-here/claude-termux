@@ -60,7 +60,7 @@ done
 # 7. Verify
 echo ""
 echo "==> Verifying..."
-VERSION=$(CLAUDE_UPDATING=1 claude-proot --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+VERSION=$(CLAUDE_UPDATING=1 "$BIN_DIR/claude-proot" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 if [ -n "$VERSION" ]; then
   echo "    Claude Code $VERSION: OK"
 else
