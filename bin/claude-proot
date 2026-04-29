@@ -16,14 +16,6 @@ export DISABLE_AUTOUPDATER=1
 export DISABLE_AUTO_UPDATE=1
 export CLAUDE_CODE_DISABLE_AUTOUPDATER=1
 
-# Auto-fix native vendor symlinks (Node reports android, binaries ship as linux)
-VENDOR="$PREFIX/lib/node_modules/@anthropic-ai/claude-code/vendor"
-for dir in ripgrep audio-capture; do
-    if [ -d "$VENDOR/$dir/arm64-linux" ] && [ ! -e "$VENDOR/$dir/arm64-android" ]; then
-        ln -s arm64-linux "$VENDOR/$dir/arm64-android"
-    fi
-done
-
 # Fix stale cwd after phone restart
 if ! pwd &>/dev/null; then
     cd "$HOME" 2>/dev/null || cd /
@@ -43,7 +35,14 @@ CLAUDE_PKG="$PREFIX/lib/node_modules/@anthropic-ai/claude-code"
 NATIVE_BIN="$CLAUDE_PKG/bin/claude.exe"
 
 if [ -f "$NATIVE_BIN" ] && [ "$(wc -c < "$NATIVE_BIN")" -gt 4096 ]; then
-    # Native musl ELF build (2.1.114+) — 1 proot binding:
+    if [ -f /lib/ld-musl-aarch64.so.1 ]; then
+        # musl linker already at expected path — proot not needed
+        exec env -u LD_PRELOAD \
+            TMPDIR="$PREFIX/tmp" \
+            LD_LIBRARY_PATH="$MUSL_LIB" \
+            "$NATIVE_BIN" "$@"
+    fi
+    # musl linker needs proot mapping — 1 binding:
     #   ld-musl — ET_EXEC binary; kernel needs interpreter at /lib (irreducible without root)
     # /tmp: TMPDIR env var routes to $PREFIX/tmp (no binding needed)
     # resolv.conf: Android /etc -> /system/etc, so /etc/resolv.conf exists natively

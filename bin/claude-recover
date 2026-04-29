@@ -1,0 +1,42 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# claude-recover - Restore Claude Code to last known working state
+PREFIX=${PREFIX:-/data/data/com.termux/files/usr}
+: ${CLAUDE_TERMUX_HOME:=${XDG_DATA_HOME:-$HOME/.local/share}/claude-termux}
+MUSL_LIB="$CLAUDE_TERMUX_HOME/musl/lib"
+NATIVE_CACHE="$CLAUDE_TERMUX_HOME/native"
+NATIVE_BIN="$PREFIX/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe"
+
+echo "==> claude-recover"
+
+# 1. Try .bak first (fastest — from last claude-update run)
+if [ -f "$NATIVE_BIN.bak" ] && [ "$(wc -c < "$NATIVE_BIN.bak")" -gt 4096 ]; then
+    cp "$NATIVE_BIN.bak" "$NATIVE_BIN" && chmod +x "$NATIVE_BIN"
+    echo "    Restored from $NATIVE_BIN.bak"
+
+# 2. Try native cache (from last claude-update musl install)
+elif [ -f "$NATIVE_CACHE/node_modules/@anthropic-ai/claude-code-linux-arm64-musl/claude" ]; then
+    cp "$NATIVE_CACHE/node_modules/@anthropic-ai/claude-code-linux-arm64-musl/claude" \
+        "$NATIVE_BIN" && chmod +x "$NATIVE_BIN"
+    echo "    Restored from native cache"
+
+# 3. Re-download from npm
+else
+    echo "    No backup found — re-downloading musl binary..."
+    VER=$(npm view @anthropic-ai/claude-code version 2>/dev/null)
+    mkdir -p "$NATIVE_CACHE"
+    npm install --prefix "$NATIVE_CACHE" \
+        "@anthropic-ai/claude-code-linux-arm64-musl@$VER" --force 2>/dev/null
+    cp "$NATIVE_CACHE/node_modules/@anthropic-ai/claude-code-linux-arm64-musl/claude" \
+        "$NATIVE_BIN" && chmod +x "$NATIVE_BIN"
+    echo "    Re-downloaded $VER"
+fi
+
+# 4. Verify
+VERSION=$(CLAUDE_UPDATING=1 claude-proot --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+if [ -n "$VERSION" ]; then
+    echo "    Claude $VERSION: OK"
+    echo "Done. Run: claude"
+else
+    echo "    FAIL: still broken. Try: npm install -g @anthropic-ai/claude-code"
+    exit 1
+fi

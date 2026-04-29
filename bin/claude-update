@@ -58,14 +58,6 @@ if [ ! -f "$TESTBIN" ]; then
   exit 1
 fi
 
-# Apply Android vendor symlinks to sandbox
-TESTVENDOR="$TESTDIR/node_modules/@anthropic-ai/claude-code/vendor"
-for dir in ripgrep audio-capture; do
-  if [ -d "$TESTVENDOR/$dir/arm64-linux" ] && [ ! -e "$TESTVENDOR/$dir/arm64-android" ]; then
-    ln -s arm64-linux "$TESTVENDOR/$dir/arm64-android"
-  fi
-done
-
 # Path 1: legacy JS build
 TESTVER=$(NODE_OPTIONS="--require $CLAUDE_TERMUX_HOME/android-native-stub.js" \
   "$TESTBIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
@@ -79,12 +71,16 @@ if [ -z "$TESTVER" ]; then
       "@anthropic-ai/claude-code-linux-arm64-musl@$LATEST" --force 2>/dev/null || true
     MUSL_BIN="$TESTDIR/node_modules/@anthropic-ai/claude-code-linux-arm64-musl/claude"
     if [ -f "$MUSL_BIN" ]; then
-      TESTVER=$(env -u LD_PRELOAD proot \
-        -b "$PREFIX/tmp:/tmp" \
-        -b "$PREFIX/etc:/etc" \
-        -b "$MUSL_LIB/ld-musl-aarch64.so.1:/lib/ld-musl-aarch64.so.1" \
-        -b "$MUSL_LIB/libc.musl-aarch64.so.1:/lib/libc.musl-aarch64.so.1" \
-        "$MUSL_BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+      if [ -f /lib/ld-musl-aarch64.so.1 ]; then
+        TESTVER=$(env -u LD_PRELOAD TMPDIR="$PREFIX/tmp" \
+          LD_LIBRARY_PATH="$MUSL_LIB" \
+          "$MUSL_BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+      else
+        TESTVER=$(env -u LD_PRELOAD TMPDIR="$PREFIX/tmp" proot \
+          -b "$MUSL_LIB/ld-musl-aarch64.so.1:/lib/ld-musl-aarch64.so.1" \
+          env LD_LIBRARY_PATH="$MUSL_LIB" \
+          "$MUSL_BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+      fi
       [ -n "$TESTVER" ] && INSTALL_MODE="musl"
     fi
   fi
@@ -109,20 +105,12 @@ else
     "@anthropic-ai/claude-code-linux-arm64-musl@$LATEST" --force 2>/dev/null
   CLAUDE_PKG="$PREFIX/lib/node_modules/@anthropic-ai/claude-code"
   mkdir -p "$CLAUDE_PKG/bin"
+  [ -f "$CLAUDE_PKG/bin/claude.exe" ] && cp "$CLAUDE_PKG/bin/claude.exe" "$CLAUDE_PKG/bin/claude.exe.bak"
   cp "$NATIVE_CACHE/node_modules/@anthropic-ai/claude-code-linux-arm64-musl/claude" \
     "$CLAUDE_PKG/bin/claude.exe"
   chmod +x "$CLAUDE_PKG/bin/claude.exe"
   log "Native binary placed at $CLAUDE_PKG/bin/claude.exe"
 fi
-
-# Re-apply vendor symlinks after global install
-VENDOR="$PREFIX/lib/node_modules/@anthropic-ai/claude-code/vendor"
-for dir in ripgrep audio-capture; do
-  if [ -d "$VENDOR/$dir/arm64-linux" ] && [ ! -e "$VENDOR/$dir/arm64-android" ]; then
-    ln -s arm64-linux "$VENDOR/$dir/arm64-android"
-    log "$dir symlink fixed."
-  fi
-done
 
 rm -rf "$TESTDIR"
 log "Done. Now on: $(claude-proot --version 2>/dev/null | head -1)"

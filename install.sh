@@ -23,10 +23,11 @@ mkdir -p "$INSTALL_DIR" "$BIN_DIR"
 
 # 3. Copy scripts
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cp "$SCRIPT_DIR/bin/claude-proot"  "$BIN_DIR/claude-proot"
-cp "$SCRIPT_DIR/bin/claude-update" "$BIN_DIR/claude-update"
+cp "$SCRIPT_DIR/bin/claude-proot"   "$BIN_DIR/claude-proot"
+cp "$SCRIPT_DIR/bin/claude-update"  "$BIN_DIR/claude-update"
+cp "$SCRIPT_DIR/bin/claude-recover" "$BIN_DIR/claude-recover"
 cp "$SCRIPT_DIR/lib/android-native-stub.js" "$INSTALL_DIR/android-native-stub.js"
-chmod +x "$BIN_DIR/claude-proot" "$BIN_DIR/claude-update"
+chmod +x "$BIN_DIR/claude-proot" "$BIN_DIR/claude-update" "$BIN_DIR/claude-recover"
 echo "    Scripts installed to $BIN_DIR"
 
 # 4. Ensure ~/.local/bin is on PATH
@@ -48,16 +49,7 @@ echo ""
 echo "==> Installing Claude Code..."
 npm install -g @anthropic-ai/claude-code 2>&1 | grep -v "Unsupported platform" || true
 
-# 6. Apply Android vendor symlinks
-VENDOR="$PREFIX/lib/node_modules/@anthropic-ai/claude-code/vendor"
-for dir in ripgrep audio-capture; do
-  if [ -d "$VENDOR/$dir/arm64-linux" ] && [ ! -e "$VENDOR/$dir/arm64-android" ]; then
-    ln -s arm64-linux "$VENDOR/$dir/arm64-android"
-    echo "    $dir symlink: fixed"
-  fi
-done
-
-# 7. Verify
+# 6. Verify
 echo ""
 echo "==> Verifying..."
 VERSION=$(CLAUDE_UPDATING=1 "$BIN_DIR/claude-proot" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
