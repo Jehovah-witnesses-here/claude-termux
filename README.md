@@ -50,6 +50,7 @@ claude-update
 ```
 ~/.local/bin/claude-proot          # launcher (alias: claude)
 ~/.local/bin/claude-update         # safe updater
+~/.local/bin/claude-recover        # restore last working binary
 ~/.local/share/claude-termux/
   android-native-stub.js           # .node addon stub
   musl/lib/                        # Alpine musl libc (auto-downloaded)
